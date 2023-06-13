@@ -1,8 +1,49 @@
-use rs_ws281x
+use rs_ws281x::{ChannelBuilder, ControllerBuilder, StripType, Controller};
+use std::thread;
+use std::time;
+use clap::Parser;
+
+/// Simple progam to run my LEDs
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args{
+    /// Time between updating lights in ms
+    #[arg(short, long)]
+    time: u64,
+
+    /// Brightness of the leds
+    #[arg(short, long, default_value="255")]
+    brightness: u8,
+}
+
+fn maker(pin:i32, led_count:i32, brightness:Option<u8>) -> Controller {
+    ControllerBuilder::new().freq(800_000).dma(10).channel(0, ChannelBuilder::new().pin(pin).count(led_count).strip_type(StripType::Ws2811Rgb).brightness(brightness.unwrap_or(255)).build()).build().unwrap()    
+}
+// it's BRG
+
+fn trans_colours_basic(mut controller:Controller, time: u64) {
+    let mut counter:usize = 0;
+    let mut modifier:usize = 0;
+    let trans: [[u8;4];3] = [[250,91,206,0],[184,245,169,0],[255,255,255,0]];
+    loop {
+        
+            
+        let leds = controller.leds_mut(0);
+        leds[(counter+modifier)%leds.len()] = trans[counter%3];
+        counter += 1;
+        if counter % leds.len() == 0 {
+            modifier += 1;
+        }
+        controller.render();
+
+        thread::sleep(time::Duration::from_millis(time));
+    }
+}
+
 
 fn main() {
-    let controller = rs_ws281x::ControllerBuilder::new().freq(800_000).dma(10).channel(ChannelBuilder::new().pin(18).counter(10).strip_type(StripType::WS2811Rgb).brightness(255).build()).build();
-    let leds = controller.leds_mut(0);
-    leds[0] = [255,255,255,0];
-    controller.render();
+    let args = Args::parse();
+
+    let controller = maker(18,15,Some(args.brightness));
+    trans_colours_basic(controller, args.time);
 }
