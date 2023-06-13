@@ -14,6 +14,10 @@ struct Args{
     /// Brightness of the leds
     #[arg(short, long, default_value="255")]
     brightness: u8,
+
+    /// If the leds strip should be turned off
+    #[arg(short, long,default_value="false", default_missing_value="true")]
+    turn_off: bool,
 }
 
 fn maker(pin:i32, led_count:i32, brightness:Option<u8>) -> Controller {
@@ -40,10 +44,29 @@ fn trans_colours_basic(mut controller:Controller, time: u64) {
     }
 }
 
+fn turn_off(mut controller:Controller) {
+    let off:[u8;4] = [0,0,0,0];
+    for led in controller.leds(0).len() {
+        let leds = controller.leds_mut(0);
+        leds[led] = off;
+    
+    }
+    /*
+    for led in controller.leds_mut(0).iter() {
+        led: [u8;4] = off;
+
+    }*/
+    controller.render();
+    std::process::exit(0x0001);
+}
+
 
 fn main() {
     let args = Args::parse();
-
+    
     let controller = maker(18,15,Some(args.brightness));
+    if args.turn_off {
+    turn_off(controller);
+    }
     trans_colours_basic(controller, args.time);
 }
