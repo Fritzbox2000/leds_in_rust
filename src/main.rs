@@ -9,13 +9,6 @@ use ws2818_rgb_led_spi_driver::adapter_gen::WS28xxAdapter;
 use ws2818_rgb_led_spi_driver::adapter_spi::WS28xxSpiAdapter;
 use ws2818_rgb_led_spi_driver::encoding::encode_rgb;
 
-enum LedProgram {
-    Trans,
-    TransTwo,
-    Off,
-    Breathe,
-}
-
 #[doc = r"Simple program to run my LEDs"]
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -32,30 +25,50 @@ struct Args {
     #[arg(short, long, default_value = "15")]
     leds: usize,
 
-    /// Setting for the led strip, current settings are: trans, trans2, breathe, off
+    /// Setting for the led strip, current settings are: trans, trans2, breathe, breathe2, flash,
+    /// warm, off
     #[arg(short = 's', long = "setting", default_value = "trans")]
     setting: String,
 }
-/// hsv_to_rgb takes hsv values and converts to an rgb tuple in the range of 0..255
-/// # Arguments
-///
-/// * hue - an f32 hue (generally best to be clamped between 0 and 360)
-/// * saturation - an f32 of how saturated the colour is (best kept between 0 and 1)
-/// * value - similar to saturation (best kept between 0 and 1)
-///
-/// # Example
-/// ```
-/// use rust_leds::hsv_to_rgb
-/// let (r,g,b) = hsv_to_rgb(37.5, 1,0.7);
-/// ```
-///
-/// This function should work for 32 bit arm cpu's, the % operator is often used in
-/// this calculation, the problem being that that operation doesn't work arm 32 bit,
-/// so this function has been constructed around it missing. If for whatever reason
-/// you decide to not use a raspberry pi 1 b (crazy as that might be ;) ) then you
-/// can skip using this function and use something like ecolor's rgb_from_hsv(), it's
-/// almost certainly faster. Though this function is pretty performant, and the cycle
-/// looks good enough for me so! who cares?!
+#[doc = r"set_brightness takes an rgb value and sets it's relative brightness, this just means that it will at 50 brightness multiply every value in rgb by 0.5.
+
+# Arguments 
+
+* rgb - [u8;3] Pretty self explantory
+* brightness - u8 number between 0 and 100 (although in theory you COULD crank it up to 255
+                                            * (don't)) 
+# Returns 
+
+* [u8;3] The new rgb values
+
+# Example
+TODO 
+"]
+pub fn set_brightness(rgb: [u8; 3], brightness: u8) -> [u8; 3] {
+    let brightness: f32 = brightness as f32;
+    return rgb.map(|i| ((i as f32 * brightness) / 100.0) as u8);
+}
+
+#[doc = r"hsv_to_rgb takes hsv values and converts to an rgb tuple in the range of 0..255
+# Arguments
+
+* hue - an f32 hue (generally best to be clamped between 0 and 360)
+* saturation - an f32 of how saturated the colour is (best kept between 0 and 1)
+* value - similar to saturation (best kept between 0 and 1)
+
+# Example
+```
+use rust_leds::hsv_to_rgb
+let (r,g,b) = hsv_to_rgb(37.5, 1,0.7);
+```
+
+This function should work for 32 bit arm cpu's, the % operator is often used in
+this calculation, the problem being that that operation doesn't work arm 32 bit,
+so this function has been constructed around it missing. If for whatever reason
+you decide to not use a raspberry pi 1 b (crazy as that might be ;) ) then you
+can skip using this function and use something like ecolor's rgb_from_hsv(), it's
+almost certainly faster. Though this function is pretty performant, and the cycle
+looks good enough for me so! who cares?!"]
 pub fn hsv_to_rgb(hue: f32, saturation: f32, value: f32) -> (u8, u8, u8) {
     let chroma = value * saturation;
     let h = hue / 60.0;
@@ -95,15 +108,9 @@ fn breathe_colours(mut adapter: WS28xxSpiAdapter, args: Args) -> ! {
     loop {
         let mut spi_bits = vec![];
         // let's create the colour
-        let (r, g, b) = hsv_to_rgb(counter, 1.0, 1.0); //rgb_from_hsv((counter, 0.9, 0.9));
-                                                       //rgb.iter_mut().for_each(|x| *x *= 255.0);
-        println!("{}", counter);
-        println!("{},{},{}", r, g, b);
-        //println!("{:?}", rgb);
-        // lets turn that colour into rgb
-        // now we should run a function to turn the string into useful numbers
-        (0..args.leds)
-            .for_each(|_| spi_bits.extend_from_slice(&encode_rgb(r as u8, g as u8, b as u8)));
+        let (r, g, b) = hsv_to_rgb(counter, 1.0, 1.0);
+        let [r, g, b] = set_brightness([r, g, b], args.brightness);
+        (0..args.leds).for_each(|_| spi_bits.extend_from_slice(&encode_rgb(r, g, b)));
         counter += 1.0;
         if counter == 360.0 {
             counter = 0.0
@@ -112,15 +119,35 @@ fn breathe_colours(mut adapter: WS28xxSpiAdapter, args: Args) -> ! {
         thread::sleep(time::Duration::from_millis(args.time));
     }
 }
-/// Cycles the leds in the strip over a set colour list.
-///
-/// # Arguments
-///
-/// * adapter - The WS28xxSpiAdapter the core of the operation
-/// * args - the arguments taken from the command line (generally for getting the number of leds)
-/// * colour_list - A Vector of u8's which holds the commands to be sent to the adapter
-///
-/// I use this function a bit (good examples are `trans_colours_basic()` and `trans_colours_two()` )
+
+fn breathe_cycle(mut adapter: WS28xxSpiAdapter, args: Args) -> ! {
+    let mut counter: f32 = 0.0;
+    loop {
+        let mut spi_bits = vec![];
+        for i in 0..args.leds {
+            let dist_from = (360.0 / args.leds as f32) * i as f32;
+            let (r, g, b) = hsv_to_rgb(counter + dist_from, 1.0, 1.0);
+            let [r, g, b] = set_brightness([r, g, b], args.brightness);
+            spi_bits.extend_from_slice(&encode_rgb(r, g, b));
+        }
+        counter += 1.0;
+        if counter == 360.0 {
+            counter = 0.0;
+        }
+        adapter.write_encoded_rgb(&spi_bits).unwrap();
+        thread::sleep(time::Duration::from_millis(args.time))
+    }
+}
+
+#[doc = r"Cycles the leds in the strip over a set colour list.
+
+# Arguments
+
+* adapter - The WS28xxSpiAdapter the core of the operation
+* args - the arguments taken from the command line (generally for getting the number of leds)
+* colour_list - A Vector of u8's which holds the commands to be sent to the adapter
+
+I use this function a bit (good examples are `trans_colours_basic()` and `trans_colours_two()` )"]
 fn cycle_n_colours(mut adapter: WS28xxSpiAdapter, args: Args, colour_list: Vec<[u8; 48]>) {
     let mut counter: usize = 0;
     loop {
@@ -158,16 +185,40 @@ fn trans_colours_two(adapter: WS28xxSpiAdapter, args: Args) {
     cycle_n_colours(adapter, args, trans)
 }
 
-fn set_colour(mut adapter: WS28xxSpiAdapter, args: Args, colour: [u8; 3]) {
+#[doc = r"Warm colour light"]
+fn warm_glow(adapter: WS28xxSpiAdapter, args: Args) {
+    set_colour(adapter, args, [255, 182, 78]);
+}
+
+#[doc = r"Flash Red and off every 10 time steps"]
+fn flash_red(mut adapter: WS28xxSpiAdapter, mut args: Args) {
+    let time = args.time.clone();
+    loop {
+        (adapter, args) = set_colour_internal(adapter, args, [255, 0, 0]);
+        thread::sleep(time::Duration::from_millis(time * 10));
+        (adapter, args) = set_colour_internal(adapter, args, [0, 0, 0]);
+        thread::sleep(time::Duration::from_millis(time * 10));
+    }
+}
+
+fn set_colour_internal(
+    mut adapter: WS28xxSpiAdapter,
+    args: Args,
+    colour: [u8; 3],
+) -> (WS28xxSpiAdapter, Args) {
     let mut spi_bits = vec![];
     for _ in 0..args.leds {
         spi_bits.extend_from_slice(&encode_rgb(colour[0], colour[1], colour[2]))
     }
     adapter.write_encoded_rgb(&spi_bits).unwrap();
+    return (adapter, args);
 }
 
+fn set_colour(adapter: WS28xxSpiAdapter, args: Args, colour: [u8; 3]) {
+    let _ = set_colour_internal(adapter, args, colour);
+}
 fn turn_off(adapter: WS28xxSpiAdapter, args: Args) {
-    set_colour(adapter, args, [0, 0, 0]);
+    set_colour(adapter, args, [0, 0, 0])
 }
 
 fn control_lights(args: Args, program: LedProgram) {
@@ -176,18 +227,34 @@ fn control_lights(args: Args, program: LedProgram) {
     match program {
         LedProgram::Trans => trans_colours_basic(adapter, args),
         LedProgram::Off => turn_off(adapter, args),
-        LedProgram::TransTwo => trans_colours_two(adapter, args),
+        LedProgram::Trans2 => trans_colours_two(adapter, args),
         LedProgram::Breathe => breathe_colours(adapter, args),
+        LedProgram::Breathe2 => breathe_cycle(adapter, args),
+        LedProgram::Warm => warm_glow(adapter, args),
+        LedProgram::Flash => flash_red(adapter, args),
     }
+}
+
+enum LedProgram {
+    Trans,
+    Trans2,
+    Off,
+    Breathe,
+    Breathe2,
+    Warm,
+    Flash,
 }
 
 fn main() {
     let args = Args::parse();
     let program = match &args.setting[..] {
         "trans" => LedProgram::Trans,
-        "trans2" => LedProgram::TransTwo,
+        "trans2" => LedProgram::Trans2,
         "breathe" => LedProgram::Breathe,
+        "breathe2" => LedProgram::Breathe2,
         "off" => LedProgram::Off,
+        "warm" => LedProgram::Warm,
+        "flash" => LedProgram::Flash,
         _ => LedProgram::Off,
     };
     control_lights(args, program)

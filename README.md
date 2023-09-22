@@ -28,3 +28,16 @@ I was using the color-art crate before, but after testing turns out that it does
 work with arm cpu's or something, or cross compiling, anyway I moved the code that
 wasn't working out to a test script and it still didn't work, kinda weird might
 be worth looking into
+
+Now I have to deal with the strip not seeming to work correctly. I don't know if
+it is spi doing something weird, currently the first ~10 LEDs flash odd colours
+and don't seem to always take commands, on top of that *ALL* the LEDs are the wrong
+colours and they are inconsistent as to what they change to (actually it seems to
+be almost on a loop, maybe this has something to do with clock cycles or the spi
+bufsize which I had to increase). This might be a problem with the led strip and
+some faulty connections. Although I'm worried it's two problems, the incorrect colours
+and the flashing across the first ~10 controllers (30 lights)
+
+15 LEDs works fine which suggests that it is either a problem with sending 100 leds
+data, although if I make it think it has 100 leds it doesn't seem to have a problem
+which really seems to suggest it's the strip. this would suck
